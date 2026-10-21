@@ -849,9 +849,11 @@ const sb={
   from:t=>new SupabaseQuery(t),
   storage:{from:bucket=>({
     upload:async(path,file)=>{try{const client=await _initSupabase();const {data,error}=await client.storage.from(bucket).upload(path,file,{upsert:true});if(error)return{data:null,error};return{data:{path},error:null}}catch(e){return{data:null,error:{message:e.message||String(e)}}}},
-    createSignedUrl:async(path,seconds=3600)=>{if(fileMappingCache[path])return{data:{signedUrl:fileMappingCache[path]},error:null};try{const client=await _initSupabase();const {data,error}=await client.storage.from(bucket).createSignedUrl(path,seconds);if(error)return{data:null,error};if(data?.signedUrl)fileMappingCache[path]=data.signedUrl;return{data,error:null}}catch(e){return{data:null,error:{message:e.message||String(e)}}}}
+    createSignedUrl:async(path,seconds=3600)=>{if(fileMappingCache[path])return{data:{signedUrl:fileMappingCache[path]},error:null};/* Legacy Firebase Storage paths — UUID/ prefix means old Firebase upload */if(path&&/^[a-f0-9-]{36}\//i.test(path)){const fbUrl="https://firebasestorage.googleapis.com/v0/b/stock-reorder-tracker.firebasestorage.app/o/"+encodeURIComponent(path)+"?alt=media";fileMappingCache[path]=fbUrl;return{data:{signedUrl:fbUrl},error:null}}try{const client=await _initSupabase();const {data,error}=await client.storage.from(bucket).createSignedUrl(path,seconds);if(error)return{data:null,error};if(data?.signedUrl)fileMappingCache[path]=data.signedUrl;return{data,error:null}}catch(e){return{data:null,error:{message:e.message||String(e)}}}}
   })}
 };
+/* Helper: resolve image/file path to a URL — handles legacy Firebase paths */
+function resolveStorageUrl(path){if(!path)return null;if(path.startsWith("http"))return path;if(/^[a-f0-9-]{36}\//i.test(path))return"https://firebasestorage.googleapis.com/v0/b/stock-reorder-tracker.firebasestorage.app/o/"+encodeURIComponent(path)+"?alt=media";return null}
 const LANDED_MULTIPLIER=1.65;
 const sortState={};
 const CHINA_VENDORS=["ARIHANT ENTERPRISES","ARIHANT ENTERPRISES MARCH 2026","MEDIA SOURCE","MEDIA SOURCE SEPTEMBER 25","SWASTIK ENTERPRISES"];
@@ -1069,7 +1071,7 @@ async function saveIndiaPO(){if(busy("indiaPO"))return;const vendor=$("ivVendor"
   for(const i of items){if(!i.task_id)continue;const x=await sb.from("reorder_tasks").update({vendor,shop_no:i.shop_no,order_qty:i.qty,unit_price:i.unit_price,currency:"INR",order_date:date,order_sheet_path:sheet,purchase_order_id:poId,status:poStatusValue==="ORDER_PLANNED"?"ORDER_PLACED":poStatusValue,updated_by:currentUser.id,updated_at:new Date().toISOString()}).eq("id",i.task_id);if(x.error)throw x.error}
   $("indiaModal").classList.remove("show");editingPO=null;indiaSelectedTasks=[];await refresh();clearBusy("indiaPO",_btn)}catch(e){$("indiaMsg").textContent=e.message||String(e);clearBusy("indiaPO",_btn)}}
 async function poStatus(poId,status){const po=purchaseOrders.find(x=>x.id===poId);if(!po)return;const now=new Date().toISOString(),payload={status,updated_by:currentUser.id,updated_at:now};if(status==="PAYMENT_DONE"&&!po.paid_at){payload.paid_at=now;if(po.source==="CHINA"&&!lockedRateForPO(po))payload.locked_rmb_rate=rmbRate()}if(status==="RECEIVED_IN_CHINA"&&!po.received_in_china_at)payload.received_in_china_at=now;if(status==="RECEIVED_IN_WAREHOUSE"&&!po.received_in_warehouse_at)payload.received_in_warehouse_at=now;const x=await sb.from("purchase_orders").update(payload).eq("id",poId);if(x.error){alert(x.error.message.includes("locked_rmb_rate")?"RMB rate lock could not be saved. "+x.error.message:x.error.message);return}const taskPayload={status,updated_by:currentUser.id,updated_at:now};if(status==="VENDOR_STOCK_UNAVAILABLE")taskPayload.vendor_unavailable_at=now;let q=sb.from("reorder_tasks").update(taskPayload).eq("purchase_order_id",poId);if(status!=="VENDOR_STOCK_UNAVAILABLE")q=q.neq("status","VENDOR_STOCK_UNAVAILABLE");const y=await q;if(y.error)alert(y.error.message);await refresh()}
-async function openSheet(path){if(!path)return;const {data,error}=await sb.storage.from("order-sheets").createSignedUrl(path,300);if(error){alert(error.message);return}window.open(data.signedUrl,"_blank")}
+async function openSheet(path){if(!path)return;const direct=resolveStorageUrl(path);if(direct){window.open(direct,"_blank");return}const {data,error}=await sb.storage.from("order-sheets").createSignedUrl(path,300);if(error){alert(error.message);return}window.open(data.signedUrl,"_blank")}
 async function mapTempSku(taskId){const t=tasks.find(x=>x.id===taskId);if(t)await mapTempByCode(t.temp_code)}
 async function mapTempByCode(code){if(!code)return;const entered=prompt(`Enter the real SKU for ${code}:`);if(!entered)return;const p=masterForSku(entered);if(!p){alert("SKU not found.");return}if(!confirm(`Map ${code} → ${p.sku} — ${p.product_name}?`))return;let x=await sb.from("reorder_tasks").update({sku:p.sku,is_new_product:false,updated_by:currentUser.id,updated_at:new Date().toISOString()}).eq("temp_code",code);if(x.error){alert(x.error.message);return}x=await sb.from("purchase_order_items").update({sku:p.sku,is_new_product:false}).eq("temp_code",code);if(x.error){alert(x.error.message);return}await refresh()}
 
@@ -1571,6 +1573,8 @@ function openTripEntry(entry){
       window._tripKeepPaths=paths.slice();
       paths.forEach(async(path)=>{
         try{
+          const direct=resolveStorageUrl(path);
+          if(direct){addTripThumb(direct,path);return}
           const {data}=await sb.storage.from("order-sheets").createSignedUrl(path,300);
           if(data)addTripThumb(data.signedUrl,path);
         }catch{}
@@ -1871,7 +1875,7 @@ function renderChinaTrip(){
   // Load signed URLs for ALL images
   document.querySelectorAll(".tripFloorImg").forEach(async img=>{
     const path=img.dataset.path;if(!path)return;
-    try{const {data}=await sb.storage.from("order-sheets").createSignedUrl(path,600);if(data)img.src=data.signedUrl}catch{}
+    try{const direct=resolveStorageUrl(path);if(direct){img.src=direct;return}const {data}=await sb.storage.from("order-sheets").createSignedUrl(path,600);if(data)img.src=data.signedUrl}catch{}
   });
 
   // Bind events — lightbox with navigation
