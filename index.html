@@ -1235,6 +1235,7 @@ function renderUpcoming(){
     if(!stamp)return;
     const start=new Date(stamp);
     const elapsed=Math.floor((now-start)/DAY);
+    if(elapsed<7)return; // skip if received less than a week ago
     const remaining=Math.max(0,TRANSIT-elapsed);
     const pct=Math.min(100,Math.round((elapsed/TRANSIT)*100));
     const eta=new Date(start.getTime()+TRANSIT*DAY);
@@ -1255,6 +1256,7 @@ function renderUpcoming(){
     if(!stamp)return;
     const start=new Date(stamp);
     const elapsed=Math.floor((now-start)/DAY);
+    if(elapsed<7)return; // skip if received less than a week ago
     const remaining=Math.max(0,TRANSIT-elapsed);
     const pct=Math.min(100,Math.round((elapsed/TRANSIT)*100));
     const eta=new Date(start.getTime()+TRANSIT*DAY);
