@@ -1087,8 +1087,10 @@ function renderDashboard(){
   const all=dashboardTasks(),ds=$("dashSource")?.value||"";
   if($("dashPartnerHead"))$("dashPartnerHead").textContent=ds==="CHINA"?"Shop No":ds==="INDIA"?"Vendor":"Shop / Vendor";
 
-  // HERO
-  const purchasedMonth=monthlyPurchasedPOs().reduce((sum,po)=>sum+poValueINR(po),0);
+  // HERO — include PO values + China Trip tasks without a PO (they store value_inr directly)
+  const poTotal=monthlyPurchasedPOs().reduce((sum,po)=>sum+poValueINR(po),0);
+  const tripTaskTotal=dashboardTasks().filter(t=>t.china_trip_entry_id&&!t.purchase_order_id&&["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(t.status)&&t.paid_at&&inSelectedMonth(t.paid_at)).reduce((sum,t)=>sum+Number(t.value_inr||0),0);
+  const purchasedMonth=poTotal+tripTaskTotal;
   const target=currentTarget(),balance=Math.max(0,target-purchasedMonth),pct=target>0?Math.round(purchasedMonth/target*100):0;
   $("heroMonthLabel").textContent=monthLabel(selectedMonth()).toUpperCase();
   $("heroPurchased").textContent=moneyINR(purchasedMonth);
@@ -1656,7 +1658,7 @@ async function deleteTripEntry(id){
 function showToast(msg,duration=3000){const t=$("ggToast");t.textContent=msg;t.style.opacity="1";t.style.transform="translateX(-50%) translateY(0)";clearTimeout(t._tid);t._tid=setTimeout(()=>{t.style.opacity="0";t.style.transform="translateX(-50%) translateY(80px)"},duration)}
 
 /* ═══ TRIP → PIPELINE (Payment Done) ═══ */
-let _pendingTripPay=null;
+let _pendingTripPay=null;let _tripPayTargetStatus="PAYMENT_DONE";
 function _tripPayCalc(){
   const rmb=Number($("tripPayRMB").value||0);
   const rate=rmbRate();
@@ -1693,29 +1695,45 @@ async function confirmTripPayment(){
   const alreadyExists=tasks.some(t=>t.china_trip_entry_id===entry.id);
   if(alreadyExists){$("tripPayMsg").textContent="⚠ This entry already has a pipeline task.";$("tripPayMsg").style.color="var(--amber)";return}
   const btn=$("tripPayConfirm");btn.disabled=true;btn.textContent="Saving…";
-  // Update trip entry status
-  const {error}=await sb.from("trip_entries").update({status:"PAYMENT_DONE",updated_by:currentUser.id,updated_at:new Date().toISOString()}).eq("id",entry.id);
+  // Use target status (PAYMENT_DONE, RECEIVED_IN_CHINA, or RECEIVED_IN_WAREHOUSE)
+  const finalStatus=_tripPayTargetStatus||"PAYMENT_DONE";
+  const now=new Date().toISOString();
+  // Build trip entry update payload with appropriate timestamps
+  const tripUpdate={status:finalStatus,updated_by:currentUser.id,updated_at:now};
+  if(finalStatus==="RECEIVED_IN_CHINA"||finalStatus==="RECEIVED_IN_WAREHOUSE")tripUpdate.paid_at=tripUpdate.paid_at||now;
+  const {error}=await sb.from("trip_entries").update(tripUpdate).eq("id",entry.id);
   if(error){btn.disabled=false;btn.textContent="✓ Confirm & Add to Pipeline";$("tripPayMsg").textContent=error.message;$("tripPayMsg").style.color="var(--red)";return}
   // Create reorder_task entry for main pipeline — store RMB price, landed INR as value
-  const taskData={id:_genId(),product_name:`China Trip – Shop ${entry.shop_no||"?"}`,sku:null,is_new_product:false,vendor:entry.street||"China Trip",source:"CHINA",planned_qty:1,suggested_qty:null,unit_price:rmbVal,currency:"RMB",value_inr:landedINR,shop_no:entry.shop_no||"",remarks:`From China Trip. District: ${entry.district||"—"}. ${(entry.categories||[]).join(", ")}. RMB ${rmbVal} × ${rate} × 1.65 = ₹${landedINR.toLocaleString("en-IN")}`,categories:entry.categories||[],status:"PAYMENT_DONE",report_month:currentMonthKey(),added_by:currentUser.id,updated_by:currentUser.id,created_at:new Date().toISOString(),updated_at:new Date().toISOString(),china_trip_entry_id:entry.id};
+  const taskData={id:_genId(),product_name:`China Trip – Shop ${entry.shop_no||"?"}`,sku:null,is_new_product:false,vendor:entry.street||"China Trip",source:"CHINA",planned_qty:1,suggested_qty:null,unit_price:rmbVal,currency:"RMB",value_inr:landedINR,shop_no:entry.shop_no||"",remarks:`From China Trip. District: ${entry.district||"—"}. ${(entry.categories||[]).join(", ")}. RMB ${rmbVal} × ${rate} × 1.65 = ₹${landedINR.toLocaleString("en-IN")}`,categories:entry.categories||[],status:finalStatus,report_month:currentMonthKey(),added_by:currentUser.id,updated_by:currentUser.id,created_at:now,updated_at:now,paid_at:now,china_trip_entry_id:entry.id};
   const {error:taskErr}=await sb.from("reorder_tasks").insert(taskData);
   btn.disabled=false;btn.textContent="✓ Confirm & Add to Pipeline";
   if(taskErr){$("tripPayMsg").textContent="Status updated but pipeline entry failed: "+taskErr.message;$("tripPayMsg").style.color="var(--red)";return}
   tasks.unshift(taskData);
-  _pendingTripPay=null;
+  _pendingTripPay=null;_tripPayTargetStatus="PAYMENT_DONE";
   $("tripPayModal").classList.remove("show");
-  showToast(`✓ Pipeline: ¥${rmbVal} → ₹${landedINR.toLocaleString("en-IN")}`);
+  showToast(`✓ Pipeline (${finalStatus.replace(/_/g," ")}): ¥${rmbVal} → ₹${landedINR.toLocaleString("en-IN")}`);
   await loadTripEntries();renderChinaTrip();renderAll();
 }
 
 async function changeTripStatus(id,status){
   const entry=tripEntries.find(e=>e.id===id);
-  // When changing to PAYMENT_DONE, open value modal instead of updating directly
-  if(status==="PAYMENT_DONE"&&entry){
-    openTripPayModal(entry);return;
+  if(!entry)return;
+  const hasPipeline=tasks.some(t=>t.china_trip_entry_id===id);
+  // If moving to PAYMENT_DONE / RECEIVED_IN_CHINA / RECEIVED_IN_WAREHOUSE and no pipeline task yet → ask for RMB value first
+  if(["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(status)&&!hasPipeline){
+    _tripPayTargetStatus=status;openTripPayModal(entry);return;
   }
+  // Update trip entry status
   const {error}=await sb.from("trip_entries").update({status,updated_by:currentUser.id,updated_at:new Date().toISOString()}).eq("id",id);
   if(error){alert(error.message);return}
+  // Sync linked pipeline task status if it exists
+  if(hasPipeline){
+    const linkedTask=tasks.find(t=>t.china_trip_entry_id===id);
+    if(linkedTask&&["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(status)){
+      if(linkedTask.purchase_order_id){await poStatus(linkedTask.purchase_order_id,status)}
+      else{await sb.from("reorder_tasks").update({status,updated_by:currentUser.id,updated_at:new Date().toISOString()}).eq("id",linkedTask.id)}
+    }
+  }
   await loadTripEntries();renderChinaTrip();renderAll();
 }
 
