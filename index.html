@@ -1000,7 +1000,7 @@ let _cleanupDone=false;
 async function cleanupEmptyPOs(){if(_cleanupDone)return;_cleanupDone=true;const emptyPOs=purchaseOrders.filter(po=>poItems(po).length===0);if(!emptyPOs.length)return;const ids=emptyPOs.map(po=>po.id);console.log("🧹 Cleaning up "+ids.length+" empty POs (no items):",ids);const {error}=await sb.from("purchase_orders").delete().in("id",ids);if(error){console.error("Cleanup failed:",error);return}purchaseOrders=purchaseOrders.filter(po=>!ids.includes(po.id));console.log("✓ Removed "+ids.length+" empty POs")}
 async function refresh(opts={}){await loadInit({useCache:false});await cleanupEmptyPOs();/* only reload master every 5 minutes, or on explicit request */const now=Date.now();if(opts.forceMaster||now-_lastMasterLoad>300000){await loadMaster(true);_lastMasterLoad=now}populateVendors();await persistMissingLockedRates();await autoCarryForward();if(Object.keys(firebaseFeed||{}).length)mergeLive();else renderAll()}
 /* Quick re-render without Supabase reload — for simple local updates */
-function quickRender(){_saveCache({profiles:Object.entries(profiles).map(([id,dn])=>({id,display_name:dn,role:_profileRoles[id]||"employee"})),tasks,orders:purchaseOrders,targets:monthlyTargets,chinaTrips,tripEntries,fileMappings:fileMappingCache});if(Object.keys(firebaseFeed||{}).length)mergeLive();else renderAll()}
+function quickRender(){_saveCache({profiles:Object.entries(profiles).map(([id,dn])=>({id,display_name:dn,role:_profileRoles[id]||"employee"})),tasks,orders:purchaseOrders,targets:monthlyTargets,chinaTrips,tripEntries,fileMappings:fileMappingCache});_dirtyTabs=new Set(["dashboard","plan","china","india","vendor","history","report","chinaTrip"]);if(Object.keys(firebaseFeed||{}).length)mergeLive();else renderActiveTab()}
 function firstNum(r,keys,fallback=null){for(const k of keys){const v=num(r?.[k]);if(v!==null)return v}return fallback}
 function firebaseProductRow(key,r){if(!r||typeof r!=="object")return null;const sku=String(r["SKU"]||r["Sku"]||r["sku"]||key||"").trim();if(!sku)return null;const base=supabaseMaster.find(p=>norm(p.sku)===norm(sku))||{};const st=sumPresent(r,STORE_CODES.map(c=>`${c} Stk`)),sales=sumPresent(r,STORE_CODES.map(c=>`${c} 30D Sold Qty`));return{sku,product_name:r["Product Name"]??r["Product"]??r["product_name"]??base.product_name??sku,vendor:r["Vendor"]??r["vendor"]??base.vendor??"",category:r["Category"]??r["Categary"]??r["category"]??base.category??"",sub_category:r["Sub Category"]??r["Sub Categary"]??r["sub_category"]??base.sub_category??"",cost_price:firstNum(r,["Cost Price","Cost","CostPrice","Cost price","Purchase Price","Purchase Cost","Buying Price","Buying Cost","cost_price"],base.cost_price??null),selling_price:firstNum(r,["Selling P","Selling Price","Sale Price","MRP","selling_price"],base.selling_price??null),total_30d_sales:firstNum(r,["Total 30D Sold Qty","30D Sold Qty","Total 30D Sales"],sales??base.total_30d_sales??0),total_store_stock:st??firstNum(r,["All Store Stk","Total Store Stock","Store Stock"],base.total_store_stock??0),warehouse_stock:firstNum(r,["WH Stk","Warehouse Stock","WH Stock"],base.warehouse_stock??0),shop_no:r["Shop No"]??r["Shop Number"]??r["shop_no"]??base.shop_no??"",rmb_price:firstNum(r,["Custom Field 2","Custom field 2","custom_field_2","RMB","RMB Price","RMB Rate","RMB Cost","rmb_price"],base.rmb_price??null)}}
 function liveRows(){return Object.entries(firebaseFeed||{}).map(([key,r])=>firebaseProductRow(key,r)).filter(Boolean)}
@@ -2011,7 +2011,10 @@ document.addEventListener("click",e=>{
 });
 document.querySelectorAll("[data-close=activityLogModal]").forEach(x=>x.addEventListener("click",()=>$("activityLogModal").classList.remove("show")));
 
-function renderAll(){renderDashboard();renderPlan();renderChina();renderIndia();renderVendor();renderHistory();renderMonthlyReport();renderChinaTrip()}
+/* Only render the active tab; mark others dirty so they render on switch */
+let _dirtyTabs=new Set();
+function renderAll(){_dirtyTabs=new Set(["dashboard","plan","china","india","vendor","history","report","chinaTrip"]);renderActiveTab()}
+function renderActiveTab(){_dirtyTabs.delete(activeTab);switch(activeTab){case"dashboard":renderDashboard();break;case"plan":renderPlan();break;case"china":renderChina();break;case"india":renderIndia();break;case"vendor":renderVendor();break;case"history":renderHistory();break;case"report":renderMonthlyReport();break;case"chinaTrip":renderChinaTrip();break}}
 
 /* ═══ BULK/DELETE ═══ */
 function cfMonths(){try{return JSON.parse(localStorage.getItem("gg_cf_months")||"{}")}catch{return{}}}
@@ -2033,7 +2036,7 @@ function setTab(tab){activeTab=tab;
   $("moreBtn").classList.toggle("active",moreTabs.includes(tab));
   ["dashboard","plan","chinaTrip","china","india","vendor","history","report"].forEach(x=>$(x+"Sec").classList.toggle("hidden",x!==tab));
   $("moreWrap").classList.remove("open");
-  renderAll()}
+  if(_dirtyTabs.has(tab)){_dirtyTabs.delete(tab)}renderActiveTab()}
 function setPlanSource(s){planSource=s;selectedMaster=null;$("planProduct").value="";$("planSuggested").value="";$("planQty").value="";$("planContext").classList.add("hidden");document.querySelectorAll("#planSourceTabs .tab").forEach(b=>b.classList.toggle("active",b.dataset.source===s));$("planVendorField").classList.toggle("hidden",s!=="INDIA");$("planVendorFilter").classList.toggle("hidden",s!=="INDIA");populateVendors();renderPlan()}
 
 /* ═══ EVENT LISTENERS ═══ */
