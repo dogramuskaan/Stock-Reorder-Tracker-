@@ -1089,10 +1089,12 @@ function renderDashboard(){
   const all=dashboardTasks(),ds=$("dashSource")?.value||"";
   if($("dashPartnerHead"))$("dashPartnerHead").textContent=ds==="CHINA"?"Shop No":ds==="INDIA"?"Vendor":"Shop / Vendor";
 
-  // HERO — include PO values + China Trip tasks without a PO (they store value_inr directly)
-  const poTotal=monthlyPurchasedPOs().reduce((sum,po)=>sum+poValueINR(po),0);
-  const tripTaskTotal=dashboardTasks().filter(t=>t.china_trip_entry_id&&!t.purchase_order_id&&["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(t.status)&&t.paid_at&&inSelectedMonth(t.paid_at)).reduce((sum,t)=>sum+Number(t.value_inr||0),0);
-  const purchasedMonth=poTotal+tripTaskTotal;
+  // HERO — all tasks paid in the selected month (paid_at in month), regardless of current status
+  const purchasedMonth=dashboardTasks().filter(t=>{
+    if(!["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(t.status))return false;
+    const payDate=t.paid_at||(t.purchase_order_id?purchaseOrders.find(p=>p.id===t.purchase_order_id)?.paid_at:null);
+    return payDate&&inSelectedMonth(payDate);
+  }).reduce((sum,t)=>sum+taskValueINR(t),0);
   const target=currentTarget(),balance=Math.max(0,target-purchasedMonth),pct=target>0?Math.round(purchasedMonth/target*100):0;
   $("heroMonthLabel").textContent=monthLabel(selectedMonth()).toUpperCase();
   $("heroPurchased").textContent=moneyINR(purchasedMonth);
