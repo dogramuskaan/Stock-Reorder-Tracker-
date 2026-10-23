@@ -1020,7 +1020,7 @@ async function _setupSupabaseRealtime(){
   tables.forEach(tbl=>{client.channel("realtime-"+tbl).on("postgres_changes",{event:"*",schema:"public",table:tbl},payload=>{console.log("🔄 Realtime:",tbl,payload.eventType);/* refresh data on any change */refresh({})}).subscribe()});
   console.log("📡 Supabase realtime subscribed for",tables.length,"tables")}catch(e){console.warn("Supabase realtime setup failed:",e)}
 }
-async function startApp(){$("loginView").classList.add("hidden");$("appView").classList.remove("hidden");/* instant render from cache if available */const cached=_loadCache();if(cached){_applyCached(cached);renderAll();setLive("connecting","Loading…")}/* Bootstrap admin: if no admins exist, promote current user */;(async()=>{try{await loadProfiles();const myId=registeredUser?.id||currentUser?.id;const hasAdmin=Object.values(_profileRoles).some(r=>r==="admin");if(!hasAdmin&&myId){_profileRoles[myId]="admin";await sb.from("profiles").update({role:"admin"}).eq("id",myId);console.log("🔑 No admins found — promoted current user to admin");showToast("🔑 You're the first user — Admin role assigned!")}updateRoleBadge()}catch(e){console.warn("Admin bootstrap:",e)}})();/* fetch fresh data from Supabase */try{await loadInit({useCache:false});renderAll()}catch(e){if(!cached)throw e;console.warn("Init fetch failed, using cache:",e)}startFirebase();setTimeout(async()=>{try{await loadMaster(true);_lastMasterLoad=Date.now();populateVendors();await persistMissingLockedRates();await autoCarryForward();if(Object.keys(firebaseFeed||{}).length)mergeLive();else renderAll()}catch(e){console.warn("Background product load:",e)}},1500);_scheduleDailyRefresh()}
+async function startApp(){$("loginView").classList.add("hidden");$("appView").classList.remove("hidden");/* instant render from cache if available */const cached=_loadCache();if(cached){_applyCached(cached);renderAll();setLive("connecting","Loading…")}/* Bootstrap admin: if no admins exist, promote current user */;(async()=>{try{await loadProfiles();const myId=registeredUser?.id||currentUser?.id;const hasAdmin=Object.values(_profileRoles).some(r=>r==="admin");if(!hasAdmin&&myId){_profileRoles[myId]="admin";await sb.from("profiles").update({role:"admin"}).eq("id",myId);console.log("🔑 No admins found — promoted current user to admin");showToast("🔑 You're the first user — Admin role assigned!")}updateRoleBadge()}catch(e){console.warn("Admin bootstrap:",e)}})();/* fetch fresh data from Supabase */try{await loadInit({useCache:false});await cleanupEmptyPOs();renderAll()}catch(e){if(!cached)throw e;console.warn("Init fetch failed, using cache:",e)}startFirebase();setTimeout(async()=>{try{await loadMaster(true);_lastMasterLoad=Date.now();populateVendors();await persistMissingLockedRates();await autoCarryForward();if(Object.keys(firebaseFeed||{}).length)mergeLive();else renderAll()}catch(e){console.warn("Background product load:",e)}},1500);_scheduleDailyRefresh()}
 function populateVendors(){const cur=$("planVendor")?.value||"",curF=$("planVendorFilter")?.value||"";const vs=[...new Set(master.filter(p=>sourceForVendor(p.vendor)==="INDIA").map(p=>String(p.vendor??"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));const opts=vs.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");$("planVendor").innerHTML=`<option value="">Select vendor...</option>${opts}`;$("planVendorFilter").innerHTML=`<option value="">All vendors</option>${opts}`;if(vs.includes(cur))$("planVendor").value=cur;if(vs.includes(curF))$("planVendorFilter").value=curF;
   const allVendors=[...new Set(master.map(p=>String(p.vendor??"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));const allOpts=allVendors.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
   const chinaShops=[...new Set(master.filter(p=>sourceForVendor(p.vendor)==="CHINA").map(p=>String(p.shop_no??"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));const chinaShopOpts=chinaShops.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join("");
@@ -1734,8 +1734,16 @@ async function changeTripStatus(id,status){
   if(hasPipeline){
     const linkedTask=tasks.find(t=>t.china_trip_entry_id===id);
     if(linkedTask&&["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(status)){
-      if(linkedTask.purchase_order_id){await poStatus(linkedTask.purchase_order_id,status)}
-      else{await sb.from("reorder_tasks").update({status,updated_by:currentUser.id,updated_at:new Date().toISOString()}).eq("id",linkedTask.id)}
+      if(linkedTask.purchase_order_id){await poStatus(linkedTask.purchase_order_id,status);return}
+      else{
+        const now=new Date().toISOString(),tp={status,updated_by:currentUser.id,updated_at:now};
+        if(status==="RECEIVED_IN_CHINA"&&!linkedTask.received_in_china_at)tp.received_in_china_at=now;
+        if(status==="RECEIVED_IN_WAREHOUSE"&&!linkedTask.received_in_warehouse_at)tp.received_in_warehouse_at=now;
+        if(!linkedTask.paid_at)tp.paid_at=now;
+        await sb.from("reorder_tasks").update(tp).eq("id",linkedTask.id);
+        // Update local array immediately
+        Object.assign(linkedTask,tp);
+      }
     }
   }
   await loadTripEntries();renderChinaTrip();renderAll();
