@@ -1240,7 +1240,9 @@ function renderUpcoming(){
     const task=taskId?tasks.find(x=>x.id===taskId):null;
     const mp=item?.sku?masterForSku(item.sku):null;
     const pName=item?.product_name||task?.product_name||mp?.product_name||po.product_name||"Unknown";
-    items.push({name:pName,shop:item?.shop_no||task?.shop_no||"—",qty:item?.qty||0,value:poValueINR(po),elapsed,remaining,pct,eta,stamp,overdue:elapsed>TRANSIT});
+    const val=poValueINR(po);
+    if(pName==="Unknown"&&val===0)return; // skip empty/junk POs
+    items.push({name:pName,shop:item?.shop_no||task?.shop_no||"—",qty:item?.qty||0,value:val,elapsed,remaining,pct,eta,stamp,overdue:elapsed>TRANSIT});
   });
 
   if(!items.length){el.classList.add("hidden");return}
