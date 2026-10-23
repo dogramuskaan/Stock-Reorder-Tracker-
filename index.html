@@ -1228,6 +1228,7 @@ function renderUpcoming(){
   const TRANSIT=40;
 
   const items=[];
+  const taskIdsInPOs=new Set();
   purchaseOrders.forEach(po=>{
     if(po.status!=="RECEIVED_IN_CHINA")return;
     const stamp=po.received_in_china_at||po.updated_at;
@@ -1239,12 +1240,28 @@ function renderUpcoming(){
     const eta=new Date(start.getTime()+TRANSIT*DAY);
     const item=poItems(po)[0];
     const taskId=item?.reorder_task_id;
+    if(taskId)taskIdsInPOs.add(taskId);
     const task=taskId?tasks.find(x=>x.id===taskId):null;
     const mp=item?.sku?masterForSku(item.sku):null;
     const pName=item?.product_name||task?.product_name||mp?.product_name||po.product_name||"Unknown";
     const val=poValueINR(po);
     if(pName==="Unknown"&&val===0)return; // skip empty/junk POs
     items.push({name:pName,shop:item?.shop_no||task?.shop_no||"—",qty:item?.qty||0,value:val,elapsed,remaining,pct,eta,stamp,overdue:elapsed>TRANSIT});
+  });
+  // Also include standalone tasks (e.g. China Trip) at RECEIVED_IN_CHINA that have no PO
+  tasks.forEach(t=>{
+    if(t.status!=="RECEIVED_IN_CHINA"||t.purchase_order_id||taskIdsInPOs.has(t.id))return;
+    const stamp=t.received_in_china_at||t.paid_at||t.updated_at;
+    if(!stamp)return;
+    const start=new Date(stamp);
+    const elapsed=Math.floor((now-start)/DAY);
+    const remaining=Math.max(0,TRANSIT-elapsed);
+    const pct=Math.min(100,Math.round((elapsed/TRANSIT)*100));
+    const eta=new Date(start.getTime()+TRANSIT*DAY);
+    const pName=t.product_name||"Unknown";
+    const val=taskValueINR(t);
+    if(pName==="Unknown"&&val===0)return;
+    items.push({name:pName,shop:t.shop_no||"—",qty:t.planned_qty||t.order_qty||0,value:val,elapsed,remaining,pct,eta,stamp,overdue:elapsed>TRANSIT});
   });
 
   if(!items.length){el.classList.add("hidden");return}
