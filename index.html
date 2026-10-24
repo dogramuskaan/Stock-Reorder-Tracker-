@@ -1136,6 +1136,16 @@ function renderDashboard(){
   const pipelineValue=stageValue(livePlaced)+stageValue(livePay)+stageValue(liveReceivedChina);
   $("lPipelineValue").textContent=moneyINR(pipelineValue);
 
+  // Helper: get first image path for China Trip tasks
+  function tripThumb(t){
+    if(!t.china_trip_entry_id)return"";
+    const entry=tripEntries.find(e=>e.id===t.china_trip_entry_id);
+    if(!entry)return"";
+    const imgs=entry.image_paths?.length?entry.image_paths:(entry.floor_image_path?[entry.floor_image_path]:[]);
+    if(!imgs.length)return"";
+    return`<img class="dashTripImg" data-path="${esc(imgs[0])}" src="" alt="" style="width:32px;height:32px;object-fit:cover;border-radius:4px;margin-right:6px;vertical-align:middle;cursor:pointer">`;
+  }
+
   // Highlight clicked card
   document.querySelectorAll('.action-card[data-dstage]').forEach(c=>c.classList.toggle('active-stage',!!dashStage&&c.dataset.dstage===dashStage));
 
@@ -1161,10 +1171,10 @@ function renderDashboard(){
       const gQty=items.reduce((s,t)=>s+Number(t.order_qty||t.planned_qty||0),0);
       const icon=items[0]?.source==="CHINA"?"🏪":"🏭";
       dashHtml+=`<tr class="dash-group-header" data-group="${esc(partner)}"><td colspan="9" style="background:var(--priLight);padding:10px 14px;border-left:3px solid var(--pri);cursor:pointer"><div style="display:flex;justify-content:space-between;align-items:center"><div><strong style="color:var(--navy);font-size:13px">${icon} ${esc(partner)}</strong> <span class="small" style="margin-left:8px">${items.length} items</span></div><div style="display:flex;gap:14px;font-size:11.5px"><span style="color:var(--muted)">Qty: <strong style="color:var(--text)">${gQty.toLocaleString()}</strong></span><span style="color:var(--muted)">Value: <strong style="color:var(--navy)">${moneyINR(gTotal)}</strong></span><span class="dash-group-arrow" style="color:var(--muted);transition:transform .2s">▼</span></div></div></td></tr>`;
-      items.forEach(t=>{dashHtml+=`<tr class="dash-group-row" data-group="${esc(partner)}"><td><input class="dashChk" type="checkbox" data-id="${t.id}"></td><td>${srcPill(t.source)}</td><td>${esc(t.product_name)}</td><td>${esc(t.source==="CHINA"?(t.shop_no||masterForSku(t.sku)?.shop_no||"—"):(t.vendor||"—"))}</td><td>${t.order_qty||t.planned_qty||"—"}</td><td class="val-col">${moneyINR(taskValueINR(t))}</td><td><select class="statusSelect dashStatus" data-id="${t.id}">${sOpts(t.status)}</select></td><td class="small">${fmtDT(t.updated_at||t.created_at)}</td><td><button class="link dashOpen" data-id="${t.id}">✏️</button> <button class="notes-btn notesBtn" data-id="${t.id}" title="Activity Log">📝${noteCountBadge(t.id)}</button> <button class="del dashDel" data-id="${t.id}">×</button></td></tr>`});
+      items.forEach(t=>{dashHtml+=`<tr class="dash-group-row" data-group="${esc(partner)}"><td><input class="dashChk" type="checkbox" data-id="${t.id}"></td><td>${srcPill(t.source)}</td><td>${tripThumb(t)}${esc(t.product_name)}</td><td>${esc(t.source==="CHINA"?(t.shop_no||masterForSku(t.sku)?.shop_no||"—"):(t.vendor||"—"))}</td><td>${t.order_qty||t.planned_qty||"—"}</td><td class="val-col">${moneyINR(taskValueINR(t))}</td><td><select class="statusSelect dashStatus" data-id="${t.id}">${sOpts(t.status)}</select></td><td class="small">${fmtDT(t.updated_at||t.created_at)}</td><td><button class="link dashOpen" data-id="${t.id}">✏️</button> <button class="notes-btn notesBtn" data-id="${t.id}" title="Activity Log">📝${noteCountBadge(t.id)}</button> <button class="del dashDel" data-id="${t.id}">×</button></td></tr>`});
     });
   } else {
-    dashHtml=list.map(t=>`<tr><td><input class="dashChk" type="checkbox" data-id="${t.id}"></td><td>${srcPill(t.source)}</td><td>${esc(t.product_name)}</td><td>${esc(t.source==="CHINA"?(t.shop_no||masterForSku(t.sku)?.shop_no||"—"):(t.vendor||"—"))}</td><td>${t.order_qty||t.planned_qty||"—"}</td><td class="val-col">${moneyINR(taskValueINR(t))}</td><td><select class="statusSelect dashStatus" data-id="${t.id}">${sOpts(t.status)}</select></td><td class="small">${fmtDT(t.updated_at||t.created_at)}</td><td><button class="link dashOpen" data-id="${t.id}">✏️</button> <button class="notes-btn notesBtn" data-id="${t.id}" title="Activity Log">📝${noteCountBadge(t.id)}</button> <button class="del dashDel" data-id="${t.id}">×</button></td></tr>`).join("");
+    dashHtml=list.map(t=>`<tr><td><input class="dashChk" type="checkbox" data-id="${t.id}"></td><td>${srcPill(t.source)}</td><td>${tripThumb(t)}${esc(t.product_name)}</td><td>${esc(t.source==="CHINA"?(t.shop_no||masterForSku(t.sku)?.shop_no||"—"):(t.vendor||"—"))}</td><td>${t.order_qty||t.planned_qty||"—"}</td><td class="val-col">${moneyINR(taskValueINR(t))}</td><td><select class="statusSelect dashStatus" data-id="${t.id}">${sOpts(t.status)}</select></td><td class="small">${fmtDT(t.updated_at||t.created_at)}</td><td><button class="link dashOpen" data-id="${t.id}">✏️</button> <button class="notes-btn notesBtn" data-id="${t.id}" title="Activity Log">📝${noteCountBadge(t.id)}</button> <button class="del dashDel" data-id="${t.id}">×</button></td></tr>`).join("");
   }
   $("dashRows").innerHTML=dashHtml;
   const dtv=list.reduce((s,t)=>s+taskValueINR(t),0),dtq=list.reduce((s,t)=>s+Number(t.order_qty||t.planned_qty||0),0);
@@ -1182,6 +1192,24 @@ function renderDashboard(){
   $("dashRows").querySelectorAll(".dashStatus").forEach(x=>x.addEventListener("change",e=>changeTaskStatus(e.target.dataset.id,e.target.value)));
   $("dashRows").querySelectorAll(".dashOpen").forEach(x=>x.addEventListener("click",e=>openEditTask(e.target.dataset.id)));
   $("dashRows").querySelectorAll(".dashDel").forEach(x=>x.addEventListener("click",e=>deleteTask(e.target.dataset.id)));
+  // Lazy-load China Trip thumbnails
+  $("dashRows").querySelectorAll(".dashTripImg").forEach(async img=>{
+    const path=img.dataset.path;if(!path)return;
+    try{const direct=resolveStorageUrl(path);if(direct){img.src=direct;return}const {data}=await sb.storage.from("order-sheets").createSignedUrl(path,600);if(data)img.src=data.signedUrl}catch{}
+  });
+  // Click thumbnail to open lightbox
+  $("dashRows").querySelectorAll(".dashTripImg").forEach(img=>{
+    img.addEventListener("click",e=>{
+      e.stopPropagation();
+      const taskId=e.target.closest("tr").querySelector("[data-id]")?.dataset?.id;
+      const t=tasks.find(x=>x.id===taskId);
+      if(!t?.china_trip_entry_id)return;
+      const entry=tripEntries.find(x=>x.id===t.china_trip_entry_id);
+      if(!entry)return;
+      const imgs=entry.image_paths?.length?entry.image_paths:(entry.floor_image_path?[entry.floor_image_path]:[]);
+      if(imgs.length){const fakeImgs=imgs.map(p=>{const el=document.createElement("img");el.dataset.path=p;const direct=resolveStorageUrl(p);if(direct)el.src=direct;return el});openTripLightbox(fakeImgs,0)}
+    });
+  });
   sortHeaders("dashboardTable")}
 
 /* ═══ ALERTS ═══ */
