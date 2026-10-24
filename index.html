@@ -897,7 +897,12 @@ function localLockedRates(){try{return JSON.parse(localStorage.getItem("gg_locke
 function lockedRateForPO(po){if(!po||po.source!=="CHINA")return null;const db=Number(po.locked_rmb_rate);return Number.isFinite(db)&&db>0?db:null}
 function effectiveRateForPO(po){return lockedRateForPO(po)||rmbRate()}
 async function persistMissingLockedRates(){const legacy=localLockedRates(),live=rmbRate();let changed=false;for(const po of purchaseOrders.filter(po=>po.source==="CHINA"&&["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(po.status)&&!lockedRateForPO(po))){const remembered=Number(legacy[po.id]),rate=Number.isFinite(remembered)&&remembered>0?remembered:live;const {error}=await sb.from("purchase_orders").update({locked_rmb_rate:rate}).eq("id",po.id);if(error){console.warn("Could not persist locked RMB rate",po.id,error.message);continue}po.locked_rmb_rate=rate;changed=true}if(changed)localStorage.removeItem("gg_locked_rmb_rates")}
-async function backfillMissingPaidAt(){for(const po of purchaseOrders.filter(p=>["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(p.status)&&!p.paid_at)){const fallback=po.received_in_china_at||po.updated_at;if(!fallback)continue;const {error}=await sb.from("purchase_orders").update({paid_at:fallback}).eq("id",po.id);if(error){console.warn("Could not backfill paid_at",po.id,error.message);continue}po.paid_at=fallback;console.log("Backfilled paid_at for PO",po.id,"→",fallback)}}
+async function backfillMissingPaidAt(){
+  // Backfill POs missing paid_at
+  for(const po of purchaseOrders.filter(p=>["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(p.status)&&!p.paid_at)){const fallback=po.received_in_china_at||po.updated_at;if(!fallback)continue;const {error}=await sb.from("purchase_orders").update({paid_at:fallback}).eq("id",po.id);if(error){console.warn("Could not backfill paid_at PO",po.id,error.message);continue}po.paid_at=fallback;console.log("Backfilled paid_at for PO",po.id,"→",fallback)}
+  // Backfill standalone tasks (no PO) missing paid_at
+  for(const t of tasks.filter(t=>["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(t.status)&&!t.paid_at&&!t.purchase_order_id)){const fallback=t.updated_at;if(!fallback)continue;const {error}=await sb.from("reorder_tasks").update({paid_at:fallback}).eq("id",t.id);if(error){console.warn("Could not backfill paid_at task",t.id,error.message);continue}t.paid_at=fallback;console.log("Backfilled paid_at for task",t.id,t.product_name,"→",fallback)}
+}
 async function refreshExchangeRate(silent=false){
   const input=$("rmbRate"),status=$("rateStatus"),btn=$("refreshRate");
   if(!input)return;if(btn)btn.disabled=true;if(status)status.textContent="…";
@@ -1097,7 +1102,7 @@ function renderDashboard(){
   const purchasedMonth=dashboardTasks().filter(t=>{
     if(!["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(t.status))return false;
     const po=t.purchase_order_id?purchaseOrders.find(p=>p.id===t.purchase_order_id):null;
-    const payDate=t.paid_at||(po?purchaseDateForPO(po):null);
+    const payDate=t.paid_at||(po?purchaseDateForPO(po):null)||t.updated_at;
     return payDate&&inSelectedMonth(payDate);
   }).reduce((sum,t)=>sum+taskValueINR(t),0);
   const target=currentTarget(),balance=Math.max(0,target-purchasedMonth),pct=target>0?Math.round(purchasedMonth/target*100):0;
