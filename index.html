@@ -1094,7 +1094,8 @@ function renderDashboard(){
   // HERO — all tasks paid in the selected month (paid_at in month), regardless of current status
   const purchasedMonth=dashboardTasks().filter(t=>{
     if(!["PAYMENT_DONE","RECEIVED_IN_CHINA","RECEIVED_IN_WAREHOUSE"].includes(t.status))return false;
-    const payDate=t.paid_at||(t.purchase_order_id?purchaseOrders.find(p=>p.id===t.purchase_order_id)?.paid_at:null);
+    const po=t.purchase_order_id?purchaseOrders.find(p=>p.id===t.purchase_order_id):null;
+    const payDate=t.paid_at||purchaseDateForPO(po);
     return payDate&&inSelectedMonth(payDate);
   }).reduce((sum,t)=>sum+taskValueINR(t),0);
   const target=currentTarget(),balance=Math.max(0,target-purchasedMonth),pct=target>0?Math.round(purchasedMonth/target*100):0;
