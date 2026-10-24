@@ -853,7 +853,8 @@ const sb={
   })}
 };
 /* Helper: resolve image/file path to a URL — handles legacy Firebase paths */
-function resolveStorageUrl(path){if(!path)return null;if(path.startsWith("http"))return path;if(/^[a-f0-9-]{36}\//i.test(path))return"https://firebasestorage.googleapis.com/v0/b/stock-reorder-tracker.firebasestorage.app/o/"+encodeURIComponent(path)+"?alt=media";return null}
+function resolveStorageUrl(path){if(!path)return null;if(path.startsWith("http"))return path;if(/^[a-f0-9-]{36}\//i.test(path)&&!path.includes("/CHINA_TRIP/"))return"https://firebasestorage.googleapis.com/v0/b/stock-reorder-tracker.firebasestorage.app/o/"+encodeURIComponent(path)+"?alt=media";return null}
+function supabaseImgUrl(path){return SUPABASE_URL+"/storage/v1/object/public/order-sheets/"+encodeURIComponent(path)}
 const LANDED_MULTIPLIER=1.65;
 const sortState={};
 const CHINA_VENDORS=["ARIHANT ENTERPRISES","ARIHANT ENTERPRISES MARCH 2026","MEDIA SOURCE","MEDIA SOURCE SEPTEMBER 25","SWASTIK ENTERPRISES"];
@@ -1961,10 +1962,10 @@ function renderChinaTrip(){
 
   $("tripGallery").innerHTML=html;
 
-  // Load signed URLs for ALL images
+  // Load images — Supabase storage for CHINA_TRIP paths, Firebase for others
   document.querySelectorAll(".tripFloorImg").forEach(async img=>{
     const path=img.dataset.path;if(!path)return;
-    try{const direct=resolveStorageUrl(path);if(direct){img.src=direct;return}const {data}=await sb.storage.from("order-sheets").createSignedUrl(path,600);if(data)img.src=data.signedUrl}catch{}
+    try{const direct=resolveStorageUrl(path);if(direct){img.src=direct;return}const {data}=await sb.storage.from("order-sheets").createSignedUrl(path,600);if(data?.signedUrl)img.src=data.signedUrl}catch{}
   });
 
   // Bind events — lightbox with navigation
